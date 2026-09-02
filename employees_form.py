@@ -344,7 +344,112 @@ class EmployeeForm:
         pass 
          
     def save_vehicle(self): 
-        pass 
+        name = self.name.get().strip()
+        eid = self.eid_entry.get().strip()
+        role = self.emp_role.get().strip()
+        status = self.emp_status.get().strip()
+        availability = self.availability_var.get().strip()
+        nationality = self.nationality_var.get().strip()
+        dob = self.dob_entry.get().strip()
+        mobile = self.mobile_var.get().strip()
+        join_date = self.jdt_var.get().strip()
+        exit_date = self.exit_dt.get().strip()
+
+        if not name:
+            self.show_message("Employee name is required.", "warning")
+            self.name.focus_set()
+            return
+        if not eid or "X" in eid:
+            self.show_message("Enter a complete Emirates ID.", "warning")
+            self.eid_entry.focus_set()
+            return
+        if not EmiratesIDValidator.is_valid_format(eid):
+            self.show_message("Invalid Emirates ID format. Use 784-YYYY-XXXXXXX-X.", "error")
+            self.eid_entry.focus_set()
+            return
+        if not role:
+            self.show_message("Role/Designation is required.", "warning")
+            self.role_combo.focus_set()
+            return
+        if not status:
+            self.show_message("Employee status is required.", "warning")
+            self.empstatus_combo.focus_set()
+            return
+        if not availability:
+            self.show_message("Employee availability is required.", "warning")
+            self.avail_combo.focus_set()
+            return
+
+        if dob and dob != "__-__-____":
+            try:
+                datetime.strptime(dob, "%d-%m-%Y")
+            except ValueError:
+                self.show_message("Date of Birth must be in DD-MM-YYYY format.", "error")
+                self.dob_entry.focus_set()
+                return
+
+        if join_date and join_date != "DD-MM-YYYY":
+            if not self.validate_joining_date():
+                self.show_message("Joining date is invalid.", "error")
+                return
+        else:
+            join_date = ""
+
+        if status in ["Resigned", "Terminated"]:
+            if not exit_date or exit_date == "DD-MM-YYYY":
+                self.show_message("Exit date is required for selected status.", "warning")
+                self.exit_entry.focus_set()
+                return
+        if exit_date and exit_date != "DD-MM-YYYY":
+            try:
+                datetime.strptime(exit_date, "%d-%m-%Y")
+            except ValueError:
+                self.show_message("Exit date must be in DD-MM-YYYY format.", "error")
+                self.exit_entry.focus_set()
+                return
+        else:
+            exit_date = ""
+
+        if mobile:
+            mobile_result = PhoneValidator.process_uae_number(mobile)
+            if not mobile_result["valid"]:
+                self.show_message(f"Invalid mobile number: {mobile_result['error']}", "error")
+                self.mobile_entry.focus_set()
+                return
+            mobile = mobile_result["formatted"]
+
+        db_path = self.get_database_path()
+
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT employee_id FROM employees WHERE TRIM(eid)=?", (eid,))
+                duplicate_row = cursor.fetchone()
+                if duplicate_row:
+                    self.show_message("Emirates ID already exists for another employee.", "error")
+                    self.eid_entry.focus_set()
+                    return
+
+                cursor.execute("""
+                    INSERT INTO employees (
+                        name, role, eid, nationality, dob, mobile, status,
+                        availability, join_date, exit_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    name, role, eid, nationality, dob, mobile, status,
+                    availability, join_date, exit_date
+                ))
+
+                employee_id = cursor.lastrowid
+                self.emp_no_var.set(str(employee_id))
+                self.save_employee_documents(conn, employee_id, name)
+                conn.commit()
+
+            self.show_message("Employee record saved successfully.", "success")
+        except sqlite3.Error as error:
+            self.show_message(f"Failed to save employee: {error}", "error")
+        except Exception as error:
+            self.show_message(f"Unable to save employee documents: {error}", "error")
      
     def form_close(self): 
         sure=messagebox.askyesno("FTMS PRO:","Are you sure you want to Exit?") 
@@ -430,8 +535,8 @@ class EmployeeForm:
             self.dob_entry.icursor(tk.END)
             return "Age must be between 18 and 60"
     #-------------- GETTING YEAR TO THE EID ENTRY---------------------------------------------------
-        self.dob_var = self.dob_entry.get()
-        year = self.dob_var.split("-")[2]
+        self.dob_var.set(self.dob_entry.get())
+        year = self.dob_var.get().split("-")[2]
         current_eid = self.eid_entry.get()
         # ✅ MASKED FORMAT
         eid_mask = f"784-{year}-XXXXXXX-X"
@@ -611,11 +716,89 @@ class EmployeeForm:
     #---------------- SHOWING DIFFERENT TYPES OF MESSAGES AS PER THE SITUATION----........-------------------------------
     
     def show_message(self, text, msg_type="info"):
-        colors = {"SUCCESS": ("#d4edda", "#155724"), "ERROR":("#f8d7da", "#721c24"), 
-                  "WARNING":("#fff3cd", "#856404"), "INFO":("#d1ecf1", "#0c5460")}
-        bg, fg = colors.get(msg_type, ("#f0f0f0", "black"))
+        message_type = str(msg_type).strip().lower()
+        colors = {
+            "success": ("#d4edda", "#155724"),
+            "error": ("#f8d7da", "#721c24"),
+            "warning": ("#fff3cd", "#856404"),
+            "info": ("#d1ecf1", "#0c5460")
+        }
+        bg, fg = colors.get(message_type, colors["info"])
         self.message_label.config(bg = bg, fg=fg)
         self.message_var.set(text)
+
+    def get_database_path(self):
+        preferred_path = "D:/FTMS PRO/ftms.db"
+        if os.path.exists(preferred_path):
+            return preferred_path
+        return os.path.join(os.path.dirname(__file__), "ftms.db")
+
+    def get_employee_documents(self):
+        doc_map = {
+            "Driving License Front": ["driving_license_front_path", "license_front_path", "dl_front_path"],
+            "Driving License Back": ["driving_license_back_path", "license_back_path", "dl_back_path"],
+            "Emirates ID Front": ["emirates_id_front_path", "eid_front_path"],
+            "Emirates ID Back": ["emirates_id_back_path", "eid_back_path"]
+        }
+
+        selected_docs = {}
+        for label, attributes in doc_map.items():
+            path = ""
+            for attribute in attributes:
+                value = getattr(self, attribute, "")
+                if value:
+                    path = value
+                    break
+            selected_docs[label] = path
+
+        if hasattr(self, "document_paths") and isinstance(self.document_paths, dict):
+            for label in selected_docs.keys():
+                selected_docs[label] = self.document_paths.get(label, selected_docs[label])
+
+        return selected_docs
+
+    def validate_document_file(self, file_path):
+        if not file_path:
+            return None
+        allowed_types = {".jpg", ".jpeg", ".png", ".pdf"}
+        extension = os.path.splitext(file_path)[1].lower()
+        if extension not in allowed_types:
+            return "Unsupported file type. Use JPG, JPEG, PNG, or PDF."
+        max_file_size = 5 * 1024 * 1024
+        if os.path.getsize(file_path) > max_file_size:
+            return "File size must be 5MB or less."
+        return None
+
+    def save_employee_documents(self, conn, employee_id, employee_name):
+        selected_docs = self.get_employee_documents()
+        if not any(selected_docs.values()):
+            return
+
+        safe_employee_name = re.sub(r'[\\/:*?"<>|]+', "_", employee_name).strip()
+        if not safe_employee_name:
+            safe_employee_name = f"employee_{employee_id}"
+
+        base_folder = "D:/FTMS PRO/employee_documents"
+        employee_folder = os.path.join(base_folder, safe_employee_name)
+        os.makedirs(employee_folder, exist_ok=True)
+
+        cursor = conn.cursor()
+        for label, source_path in selected_docs.items():
+            if not source_path:
+                continue
+
+            validation_message = self.validate_document_file(source_path)
+            if validation_message:
+                raise ValueError(f"{label}: {validation_message}")
+
+            extension = os.path.splitext(source_path)[1]
+            target_path = os.path.join(employee_folder, f"{label}{extension}")
+            shutil.copy2(source_path, target_path)
+
+            cursor.execute(
+                "INSERT INTO employee_documents (emp_id, doc_type, file_path) VALUES (?, ?, ?)",
+                (employee_id, label, target_path)
+            )
     
     def on_category_selected(self, code):
         data = self.license_categories[code]
