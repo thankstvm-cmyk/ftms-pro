@@ -183,9 +183,10 @@ class EmployeeForm:
 #---------------------.NATIONALITY .............................................................................
         tk.Label(self.personal_frame,text="Nationality", bg="white").grid(row=6, column=0, sticky="w", padx=5, pady=5)
         self.nationality_var = tk.StringVar()
-        ttk.Combobox(self.personal_frame, textvariable=self.nationality_var,
+        self.nationality_combo = ttk.Combobox(self.personal_frame, textvariable=self.nationality_var,
         values=["Indian", "Pakistani", "Nepali", "Bangladeshi", "Sri Lankan", "Other"],
-        state="readonly").grid(row=6, column=1, sticky="ew", padx=5, pady=5)
+        state="readonly")
+        self.nationality_combo.grid(row=6, column=1, sticky="ew", padx=5, pady=5)
 # ======================== WORK FRAME ================================================================================
 
         self.work_frame = tk.Frame(self.top_frame, bg="white", bd=1, relief="solid")
@@ -333,15 +334,93 @@ class EmployeeForm:
 
         self.new_btn = tk.Button(self.button_frame, text="NEW EMPLOYEE", command=self.new_vehicle, height=2)
         self.new_btn.grid(row=0, column=1, padx=5, sticky="ew")
-        self.new_btn.config(state="disabled")
+        self.new_btn.config(state="normal")
 
         self.close_btn = tk.Button(self.button_frame, text="CLOSE", command=self.form_close, height=2)
         self.close_btn.grid(row=0, column=2, padx=5, sticky="ew")
+        
+        self.initialize_form_state()
      #.--------------------------------OPERATION FUNCTIONS ----------------------------------------..............----
      
     # USER DEFINED FUNCTIONS 
     def new_vehicle(self): 
-        pass 
+        self.reset_form_fields()
+        self.set_form_editable(True)
+        self.new_btn.config(state="disabled")
+        self.save_btn.config(state="normal")
+        self.show_message('Ready. Enter new employee details and click "SAVE".', "info")
+        self.name.focus_set()
+
+    def initialize_form_state(self):
+        self.reset_form_fields()
+        self.set_form_editable(False)
+        self.save_btn.config(state="disabled")
+        self.new_btn.config(state="normal")
+        self.show_message('Please click on the "NEW" button to record new employee details.', "info")
+
+    def set_form_editable(self, editable):
+        entry_state = "normal" if editable else "disabled"
+        combo_state = "readonly" if editable else "disabled"
+        status = self.emp_status.get().strip()
+
+        for widget in [self.name, self.dob_entry, self.eid_entry, self.mobile_entry, self.jdt_entry]:
+            widget.config(state=entry_state)
+
+        for widget in [self.role_combo, self.nationality_combo, self.empstatus_combo, self.avail_combo]:
+            widget.config(state=combo_state)
+
+        self.cal_btn.config(state=entry_state)
+        self.jdt_btn.config(state=entry_state)
+
+        for checkbox in self.license_checkboxes.values():
+            checkbox.config(state=entry_state)
+        self.set_btn.config(state=entry_state)
+
+        if editable and status in ["Resigned", "Terminated"]:
+            self.exit_entry.config(state="normal")
+        else:
+            self.exit_entry.config(state="disabled")
+
+    def reset_form_fields(self):
+        self.emp_no_var.set("")
+        self.name.delete(0, tk.END)
+        self.dob_entry.config(state="normal")
+        self.dob_entry.delete(0, tk.END)
+        self.dob_entry.insert(0, "__-__-____")
+
+        self.eid_entry.config(state="normal")
+        self.eid_entry.delete(0, tk.END)
+        self.eid_entry.insert(0, "784-XXXX-XXXXXXX-X")
+        self.eid_entry.icursor(9)
+
+        self.mobile_var.set("")
+        self.mobile_entry.config(fg="black")
+        self.mobile_status.config(text="", fg="black")
+
+        self.nationality_var.set("")
+        self.emp_role.set("")
+        self.jdt_var.set("")
+        self.jdt_entry.config(state="normal")
+        self.jdt_entry.delete(0, tk.END)
+        self.jdt_entry.insert(0, "DD-MM-YYYY")
+        self.jdt_entry.config(fg="grey")
+
+        self.emp_status.set("")
+        self.availability_var.set("Available")
+        self.exit_dt.set("")
+        self.exit_entry.config(state="normal")
+        self.exit_entry.delete(0, tk.END)
+        self.exit_entry.insert(0, "DD-MM-YYYY")
+        self.exit_entry.config(state="disabled")
+
+        for var in self.license_vars.values():
+            var.set(0)
+        for checkbox in self.license_checkboxes.values():
+            checkbox.grid()
+            checkbox.config(state="normal", bg="white")
+        self.set_btn.config(text="SET", bg="#1e3a5f")
+        self.category_mode = "SET"
+        self.license_frame.grid_remove()
          
     def save_vehicle(self): 
         name = self.name.get().strip()
@@ -446,6 +525,10 @@ class EmployeeForm:
                 conn.commit()
 
             self.show_message("Employee record saved successfully.", "success")
+            self.set_form_editable(False)
+            self.save_btn.config(state="disabled")
+            self.new_btn.config(state="normal")
+            self.show_message('Employee saved. Click "NEW" to record another employee.', "success")
         except sqlite3.Error as error:
             self.show_message(f"Failed to save employee: {error}", "error")
         except Exception as error:
