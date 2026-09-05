@@ -63,6 +63,7 @@ class EmployeeForm:
         self.form_frame.columnconfigure(1, weight=1)
         
         self.create_widgets()
+        self._set_form_enabled(False)
 
     def create_widgets(self):
         #1.  MAIN CONTAINER
@@ -183,9 +184,10 @@ class EmployeeForm:
 #---------------------.NATIONALITY .............................................................................
         tk.Label(self.personal_frame,text="Nationality", bg="white").grid(row=6, column=0, sticky="w", padx=5, pady=5)
         self.nationality_var = tk.StringVar()
-        ttk.Combobox(self.personal_frame, textvariable=self.nationality_var,
+        self.nationality_combo = ttk.Combobox(self.personal_frame, textvariable=self.nationality_var,
         values=["Indian", "Pakistani", "Nepali", "Bangladeshi", "Sri Lankan", "Other"],
-        state="readonly").grid(row=6, column=1, sticky="ew", padx=5, pady=5)
+        state="readonly")
+        self.nationality_combo.grid(row=6, column=1, sticky="ew", padx=5, pady=5)
 # ======================== WORK FRAME ================================================================================
 
         self.work_frame = tk.Frame(self.top_frame, bg="white", bd=1, relief="solid")
@@ -333,7 +335,6 @@ class EmployeeForm:
 
         self.new_btn = tk.Button(self.button_frame, text="NEW EMPLOYEE", command=self.new_vehicle, height=2)
         self.new_btn.grid(row=0, column=1, padx=5, sticky="ew")
-        self.new_btn.config(state="disabled")
 
         self.close_btn = tk.Button(self.button_frame, text="CLOSE", command=self.form_close, height=2)
         self.close_btn.grid(row=0, column=2, padx=5, sticky="ew")
@@ -341,10 +342,101 @@ class EmployeeForm:
      
     # USER DEFINED FUNCTIONS 
     def new_vehicle(self): 
-        pass 
+        self._set_form_enabled(True)
+        self.name.delete(0, tk.END)
+        self.dob_entry.delete(0, tk.END)
+        self.dob_entry.insert(0, "__-__-____")
+        self.eid_entry.delete(0, tk.END)
+        self.eid_entry.insert(0, "784-XXXX-XXXXXXX-X")
+        self.mobile_var.set("")
+        self.mobile_status.config(text="", fg="black")
+        self.nationality_var.set("")
+        self.jdt_var.set("")
+        self.jdt_entry.delete(0, tk.END)
+        self.jdt_entry.insert(0, "DD-MM-YYYY")
+        self.jdt_entry.config(fg="grey")
+        self.emp_role.set("")
+        self.emp_status.set("Active")
+        self.availability_var.set("Available")
+        self.exit_entry.config(state="normal")
+        self.exit_entry.delete(0, tk.END)
+        self.exit_entry.insert(0, "DD-MM-YYYY")
+        self.exit_entry.config(state="disabled")
+        self.license_frame.grid_remove()
+        for code, var in self.license_vars.items():
+            var.set(0)
+            self.license_checkboxes[code].grid()
+            self.license_checkboxes[code].config(state="normal", bg="white")
+        self.set_btn.config(text="SET", bg="#1e3a5f")
+        self.category_mode = "SET"
+        self.show_message("New employee form is ready.", "INFO")
+        self.name.focus_set()
          
     def save_vehicle(self): 
-        pass 
+        name = self.name.get().strip()
+        role = self.emp_role.get().strip()
+        eid = self._normalize_eid_value(self.eid_var.get())
+
+        if not name or not eid or not role:
+            self.show_message("Name, EID, and Role are mandatory fields.", "ERROR")
+            return
+
+        if not self._is_complete_eid(eid):
+            self.show_message("Complete the full EID before saving.", "ERROR")
+            self.eid_entry.focus_set()
+            return
+
+        if not EmiratesIDValidator.is_valid_format(eid):
+            self.show_message("Enter a valid EID: 784-YYYY-XXXXXXX-X.", "ERROR")
+            self.eid_entry.focus_set()
+            return
+
+        self.eid_var.set(eid)
+
+        try:
+            connection = sqlite3.connect("ftms.db")
+            cursor = connection.execute(
+                "SELECT employee_id, name FROM employees WHERE eid = ?",
+                (eid,),
+            )
+            existing = cursor.fetchone()
+            if existing:
+                self.show_message("EID already exists.", "ERROR")
+                self.eid_entry.focus_set()
+                return
+
+            connection.execute(
+                """
+                INSERT INTO employees
+                (name, role, eid, nationality, dob, mobile, status, availability, join_date, exit_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    role,
+                    eid,
+                    self.nationality_var.get().strip() or None,
+                    self.dob_entry.get().strip() or None,
+                    self.mobile_var.get().strip() or None,
+                    self.emp_status.get().strip() or "Active",
+                    self.availability_var.get().strip() or "Available",
+                    self.jdt_entry.get().strip() or None,
+                    self.exit_dt.get().strip() if self.exit_entry.cget("state") != "disabled" else None,
+                ),
+            )
+            connection.commit()
+            self.show_message("Employee saved successfully.", "SUCCESS")
+            self._set_form_enabled(False)
+        except sqlite3.IntegrityError:
+            self.show_message("EID already exists.", "ERROR")
+            self.eid_entry.focus_set()
+        except sqlite3.Error as error:
+            self.show_message(f"Unable to save employee: {error}", "ERROR")
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
      
     def form_close(self): 
         sure=messagebox.askyesno("FTMS PRO:","Are you sure you want to Exit?") 
@@ -469,9 +561,9 @@ class EmployeeForm:
             self.dob_var.set("")
             
     def validate_eid(self):
-        eid = self.eid_entry.get().strip()
+        eid = self._normalize_eid_value(self.eid_entry.get())
         # Ignore empty or partially auto-filled
-        if eid == "" or eid.startswith("784-") and len(eid) < 18:
+        if eid == "" or not self._is_complete_eid(eid):
             return
         if not EmiratesIDValidator.is_valid_format(eid):
             messagebox.showwarning("FTMS PRO","Invalid EID. Correct format:784-YYYY-XXXXXXX-X")
@@ -784,4 +876,52 @@ class EmployeeForm:
             self.availability_var.set("Not Available")
             self.avail_combo.config(state="disabled")
             self.exit_entry.config(state="disabled")
+
+    def _set_form_enabled(self, enabled):
+        entry_state = "normal" if enabled else "disabled"
+        combo_state = "readonly" if enabled else "disabled"
+        button_state = "normal" if enabled else "disabled"
+
+        for widget in (
+            self.name,
+            self.dob_entry,
+            self.cal_btn,
+            self.eid_entry,
+            self.mobile_entry,
+            self.jdt_entry,
+            self.jdt_btn,
+            self.set_btn,
+        ):
+            widget.config(state=entry_state if isinstance(widget, tk.Entry) else button_state)
+
+        self.nationality_combo.config(state=combo_state)
+        self.role_combo.config(state=combo_state)
+        self.empstatus_combo.config(state=combo_state)
+        self.avail_combo.config(state=combo_state if enabled else "disabled")
+
+        if enabled:
+            self.on_status_change(None)
+        else:
+            self.exit_entry.config(state="disabled")
+
+        for checkbox in self.license_checkboxes.values():
+            checkbox.config(state=button_state)
+
+        self.save_btn.config(state=button_state)
+        self.new_btn.config(state="normal")
+        self.close_btn.config(state="normal")
+
+    def _normalize_eid_value(self, eid):
+        value = (eid or "").strip().upper().replace(" ", "").replace("_", "")
+        digits_only = re.sub(r"\D", "", value)
+        if len(digits_only) == 15 and digits_only.startswith("784"):
+            return f"{digits_only[:3]}-{digits_only[3:7]}-{digits_only[7:14]}-{digits_only[14]}"
+        return value
+
+    def _is_complete_eid(self, eid):
+        if not eid:
+            return False
+        if "X" in eid or "_" in eid:
+            return False
+        return bool(re.match(r"^784-\d{4}-\d{7}-\d$", eid))
             
