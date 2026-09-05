@@ -64,6 +64,7 @@ class EmployeeForm:
         
         self.create_widgets()
         self._set_form_enabled(False)
+        self.show_message("Click NEW button to Add a new employee data", "INFO")
 
     def create_widgets(self):
         #1.  MAIN CONTAINER
