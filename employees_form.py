@@ -375,7 +375,7 @@ class EmployeeForm:
     def save_vehicle(self): 
         name = self.name.get().strip()
         role = self.emp_role.get().strip()
-        eid = self._normalize_eid_value(self.eid_var.get())
+        eid = self._normalize_eid_value(self.eid_entry.get())
 
         if not name or not eid or not role:
             self.show_message("Name, EID, and Role are mandatory fields.", "ERROR")
@@ -391,13 +391,24 @@ class EmployeeForm:
             self.eid_entry.focus_set()
             return
 
+        eid_lookup_key = self._eid_lookup_key(eid)
+        if not eid_lookup_key:
+            self.show_message("Enter a valid EID: 784-YYYY-XXXXXXX-X.", "ERROR")
+            self.eid_entry.focus_set()
+            return
+
         self.eid_var.set(eid)
 
         try:
             connection = sqlite3.connect("ftms.db")
             cursor = connection.execute(
-                "SELECT employee_id, name FROM employees WHERE eid = ?",
-                (eid,),
+                """
+                SELECT employee_id, name
+                FROM employees
+                WHERE REPLACE(REPLACE(REPLACE(UPPER(TRIM(eid)), '-', ''), ' ', ''), '_', '') = ?
+                LIMIT 1
+                """,
+                (eid_lookup_key,),
             )
             existing = cursor.fetchone()
             if existing:
@@ -522,8 +533,8 @@ class EmployeeForm:
             self.dob_entry.icursor(tk.END)
             return "Age must be between 18 and 60"
     #-------------- GETTING YEAR TO THE EID ENTRY---------------------------------------------------
-        self.dob_var = self.dob_entry.get()
-        year = self.dob_var.split("-")[2]
+        dob_text = self.dob_entry.get()
+        year = dob_text.split("-")[2]
         current_eid = self.eid_entry.get()
         # ✅ MASKED FORMAT
         eid_mask = f"784-{year}-XXXXXXX-X"
@@ -917,6 +928,12 @@ class EmployeeForm:
         if len(digits_only) == 15 and digits_only.startswith("784"):
             return f"{digits_only[:3]}-{digits_only[3:7]}-{digits_only[7:14]}-{digits_only[14]}"
         return value
+
+    def _eid_lookup_key(self, eid):
+        digits_only = re.sub(r"\D", "", eid or "")
+        if len(digits_only) == 15 and digits_only.startswith("784"):
+            return digits_only
+        return ""
 
     def _is_complete_eid(self, eid):
         if not eid:
