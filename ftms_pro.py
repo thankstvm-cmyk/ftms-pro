@@ -13,7 +13,7 @@ from font_manager import FontManager
 from config import IMAGE_DIR
 from dashboard import Dashboard
 from angel.ftmsangel import Angel
-from employees_form import EmployeeForm
+from employee_form import EmployeeForm
 
 class FTMSApp:
     def __init__(self, root):
