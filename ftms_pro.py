@@ -14,9 +14,12 @@ from config import IMAGE_DIR
 from dashboard import Dashboard
 from angel.ftmsangel import Angel
 from employees_form import EmployeeForm
+from admin_auth import ensure_admin_password_store
+from admin_settings_page import AdminSettingsPage
 
 class FTMSApp:
     def __init__(self, root):
+        ensure_admin_password_store()
         self.root=root
         # Safe navigation bridge for Smart Angel.  Angel only invokes existing
         # FTMSApp methods registered in its action router.
@@ -162,6 +165,7 @@ class FTMSApp:
         btn_roles.pack(side="left", padx=5, pady=5)
         btn_settings=tk.Button(self.submenu_frame, text="System Settings", width=18)
         btn_settings.pack(side="left", padx=5, pady=5)
+        AdminSettingsPage(self.content_area)
         
     def show_staff_menu(self):
         self.clear_submenu()
