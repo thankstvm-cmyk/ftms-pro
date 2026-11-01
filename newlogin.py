@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox
 
+from admin_auth import verify_admin_password
+
+
 class LoginDialog:
     
     def __init__ (self, parent, on_success):
@@ -29,7 +32,7 @@ class LoginDialog:
         self.win.bind("<Return>", lambda e: self.check_password())
         
     def check_password(self):
-        if self.pwd_var.get()=="Admin123":
+        if verify_admin_password(self.pwd_var.get()):
             self.win.destroy()
             self.on_success()
         else:
