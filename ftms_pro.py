@@ -157,6 +157,10 @@ class FTMSApp:
         
         
     def show_admin_menu(self):
+        login = LoginDialog(self.root, self.open_admin_settings)
+        login.show_login()
+
+    def open_admin_settings(self):
         self.load_page("Admin Settings - Page")
         self.clear_submenu()
         btn_user=tk.Button(self.submenu_frame, text="User Management", width=18)

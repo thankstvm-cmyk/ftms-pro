@@ -36,7 +36,10 @@ class LoginDialog:
             self.win.destroy()
             self.on_success()
         else:
-            messagebox.showerror("FTMS Error:", "Wrong Password")
+            messagebox.showerror(
+                "FTMS Error:",
+                "Please check your password and enter the correct password.",
+            )
 
     
         
