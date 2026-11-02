@@ -83,7 +83,7 @@ class FTMSApp:
         lock=ImageTk.PhotoImage(img)
         btn_admin = tk.Button(self.sidebar, text="Admin Settings",image=lock, compound="left",
                                bg="#1c0bdf", fg="white",
-                              font=("Arial", 11, "bold"), relief="flat", command=self.show_admin_menu)
+                              font=("Arial", 11, "bold"), relief="flat", command=self.open_logintoadmin)
         btn_admin.image=lock
         btn_admin.pack(fill="x", padx=10, pady=(20,5))
         seperator=tk.Frame(self.sidebar, height=2, bg="#5a6f86")
@@ -156,6 +156,10 @@ class FTMSApp:
         self.load_page("Vehicle Management")
         
         
+    def open_logintoadmin(self):
+        login = LoginDialog(self.root, self.show_admin_menu)
+        login.show_login()
+
     def show_admin_menu(self):
         self.load_page("Admin Settings - Page")
         self.clear_submenu()
