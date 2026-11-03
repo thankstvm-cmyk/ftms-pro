@@ -328,7 +328,7 @@ class EmployeeForm:
         self.message_label.grid(row=5, column=0, sticky="ew", padx=5, pady=(0,10))
 
         # COMMAND BUTTONS
-        self.save_btn = tk.Button(self.button_frame, text="SAVE", command=self.save_vehicle, height=2)
+        self.save_btn = tk.Button(self.button_frame, text="UPDATE DOCUMENTS", command=self.save_vehicle, height=2)
         self.save_btn.grid(row=0, column=0, padx=5, sticky="ew")
 
         self.new_btn = tk.Button(self.button_frame, text="NEW EMPLOYEE", command=self.new_vehicle, height=2)
@@ -344,7 +344,31 @@ class EmployeeForm:
         pass 
          
     def save_vehicle(self): 
-        pass 
+        employee_name = self.name.get().strip()
+        if not employee_name:
+            self.show_message("Employee name is required to update documents.", "WARNING")
+            return
+
+        document_paths = self._collect_employee_document_paths()
+        if not any(document_paths.values()):
+            self.show_message("Please select at least one employee document to update.", "WARNING")
+            return
+
+        db_path = self._get_database_path()
+
+        try:
+            with sqlite3.connect(db_path) as conn:
+                employee_id = self._resolve_employee_id(conn)
+                if not employee_id:
+                    self.show_message("Unable to find employee record for document update.", "ERROR")
+                    return
+
+                self._save_employee_documents(conn, employee_id, employee_name, document_paths)
+                conn.commit()
+                self.emp_no_var.set(str(employee_id))
+            self.show_message("Employee documents updated successfully.", "SUCCESS")
+        except Exception as error:
+            self.show_message(f"Failed to update employee documents: {error}", "ERROR")
      
     def form_close(self): 
         sure=messagebox.askyesno("FTMS PRO:","Are you sure you want to Exit?") 
@@ -616,6 +640,125 @@ class EmployeeForm:
         bg, fg = colors.get(msg_type, ("#f0f0f0", "black"))
         self.message_label.config(bg = bg, fg=fg)
         self.message_var.set(text)
+
+    def _get_database_path(self):
+        preferred_path = r"D:/FTMS PRO/ftms.db"
+        if os.path.exists(preferred_path):
+            return preferred_path
+        return os.path.join(os.path.dirname(__file__), "ftms.db")
+
+    def _resolve_employee_id(self, conn):
+        emp_no_value = self.emp_no_var.get().strip()
+        if emp_no_value:
+            if emp_no_value.isdigit():
+                return int(emp_no_value)
+            digit_parts = re.findall(r"\d+", emp_no_value)
+            if digit_parts:
+                return int(digit_parts[-1])
+
+        cursor = conn.cursor()
+        eid_value = self.eid_entry.get().strip()
+        if eid_value:
+            cursor.execute("SELECT employee_id FROM employees WHERE TRIM(eid)=?", (eid_value,))
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+
+        employee_name = self.name.get().strip()
+        if employee_name:
+            cursor.execute(
+                "SELECT employee_id FROM employees WHERE TRIM(name)=? ORDER BY employee_id DESC LIMIT 1",
+                (employee_name,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+
+        return None
+
+    def _collect_employee_document_paths(self):
+        doc_sources = {
+            "Driving License Front": [
+                "driving_license_front_path",
+                "license_front_path",
+                "dl_front_path",
+            ],
+            "Driving License Back": [
+                "driving_license_back_path",
+                "license_back_path",
+                "dl_back_path",
+            ],
+            "EID Front": [
+                "eid_front_path",
+                "emirates_id_front_path",
+            ],
+            "EID Back": [
+                "eid_back_path",
+                "emirates_id_back_path",
+            ],
+        }
+
+        document_paths = {}
+        for doc_type, attributes in doc_sources.items():
+            document_paths[doc_type] = ""
+            for attribute in attributes:
+                value = getattr(self, attribute, "")
+                if hasattr(value, "get"):
+                    value = value.get()
+                if isinstance(value, str) and value.strip():
+                    document_paths[doc_type] = value.strip()
+                    break
+
+        if hasattr(self, "document_paths") and isinstance(self.document_paths, dict):
+            key_aliases = {
+                "Driving License Front": ["Driving License Front"],
+                "Driving License Back": ["Driving License Back"],
+                "EID Front": ["EID Front", "Emirates ID Front"],
+                "EID Back": ["EID Back", "Emirates ID Back"],
+            }
+            for doc_type, aliases in key_aliases.items():
+                if document_paths.get(doc_type):
+                    continue
+                for alias in aliases:
+                    value = self.document_paths.get(alias, "")
+                    if isinstance(value, str) and value.strip():
+                        document_paths[doc_type] = value.strip()
+                        break
+
+        return document_paths
+
+    def _save_employee_documents(self, conn, employee_id, employee_name, document_paths):
+        safe_employee_name = re.sub(r'[\\/:*?"<>|]+', "_", employee_name).strip()
+        if not safe_employee_name:
+            safe_employee_name = f"employee_{employee_id}"
+
+        destination_dir = os.path.join(
+            r"D:/FTMS PRO/employee_documents",
+            safe_employee_name,
+            "documents",
+        )
+        os.makedirs(destination_dir, exist_ok=True)
+
+        cursor = conn.cursor()
+        for doc_type, source_path in document_paths.items():
+            if not source_path:
+                continue
+            if not os.path.isfile(source_path):
+                raise FileNotFoundError(f"{doc_type} file not found: {source_path}")
+
+            extension = os.path.splitext(source_path)[1]
+            file_name = re.sub(r"[^A-Za-z0-9]+", "_", doc_type).strip("_")
+            destination_path = os.path.join(destination_dir, f"{file_name}{extension}")
+            shutil.copy2(source_path, destination_path)
+
+            cursor.execute(
+                "DELETE FROM employee_documents WHERE emp_id=? AND doc_type=?",
+                (employee_id, doc_type),
+            )
+            cursor.execute(
+                "INSERT INTO employee_documents (emp_id, doc_type, file_path) VALUES (?, ?, ?)",
+                (employee_id, doc_type, destination_path),
+            )
     
     def on_category_selected(self, code):
         data = self.license_categories[code]
