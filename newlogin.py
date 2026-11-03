@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 
-from admin_auth import verify_admin_password
+from admin_auth import attempt_admin_login
 
 
 class LoginDialog:
@@ -32,11 +32,13 @@ class LoginDialog:
         self.win.bind("<Return>", lambda e: self.check_password())
         
     def check_password(self):
-        if verify_admin_password(self.pwd_var.get()):
+        success, message = attempt_admin_login(self.pwd_var.get())
+        if success:
             self.win.destroy()
             self.on_success()
         else:
-            messagebox.showerror("FTMS Error:", "Wrong Password")
+            self.pwd_var.set("")
+            messagebox.showerror("FTMS Error:", message, parent=self.win)
 
     
         
