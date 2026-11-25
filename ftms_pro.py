@@ -16,6 +16,7 @@ from angel.ftmsangel import Angel
 from employees_form import EmployeeForm
 from admin_auth import ensure_admin_password_store
 from admin_settings_page import AdminSettingsPage
+from bike_bus import BikeBusRegistration
 
 class FTMSApp:
     def __init__(self, root):
@@ -195,8 +196,10 @@ class FTMSApp:
         btn_pick=tk.Button(self.submenu_frame, text="Pickup / Truck / Trailer", command=self.open_add_vehicle, width=20)
         btn_pick.pack(side="left",padx=5, pady=5)
         
-        bik_bus=tk.Button(self.submenu_frame, text="Bike/ Bus", width=20)
-        bik_bus.pack(side="left",padx=5, pady=5)
+        add_bike=tk.Button(self.submenu_frame, text="Add Bike", command=lambda: self.open_bike_bus("Bike"), width=20)
+        add_bike.pack(side="left",padx=5, pady=5)
+        add_bus=tk.Button(self.submenu_frame, text="Add Bus", command=lambda: self.open_bike_bus("Bus"), width=20)
+        add_bus.pack(side="left",padx=5, pady=5)
         
         off_veh=tk.Button(self.submenu_frame, text="Office Vehicles", width=20)
         off_veh.pack(side="left",padx=5, pady=5)
@@ -212,6 +215,12 @@ class FTMSApp:
         self.set_form_mode(True)
         self.set_page_title("Add New Vehicle")
         self.add_vehicle=AddVehicleWindow(self.overlay, self)
+
+    def open_bike_bus(self, vehicle_kind):
+        self.show_overlay()
+        self.set_form_mode(True)
+        self.set_page_title(f"Add New {vehicle_kind}")
+        self.bike_bus_registration=BikeBusRegistration(self.overlay, self, vehicle_kind)
         
     def open_logintoedit(self):
         self.show_overlay()
