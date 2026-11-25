@@ -217,10 +217,12 @@ class FTMSApp:
         self.add_vehicle=AddVehicleWindow(self.overlay, self)
 
     def open_bike_bus(self, vehicle_kind):
-        self.show_overlay()
+        self.clear_content_area()
         self.set_form_mode(True)
-        self.set_page_title(f"Add New {vehicle_kind}")
-        self.bike_bus_registration=BikeBusRegistration(self.overlay, self, vehicle_kind)
+        for widget in self.submenu_frame.winfo_children():
+            if isinstance(widget, tk.Button):
+                widget.config(state="disabled")
+        self.bike_bus_registration=BikeBusRegistration(self.content_area, self, vehicle_kind)
         
     def open_logintoedit(self):
         self.show_overlay()

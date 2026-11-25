@@ -3,22 +3,23 @@ import tkinter as tk
 from datetime import date, datetime, timedelta
 from math import isfinite
 from tkinter import filedialog, messagebox, ttk
-from pathlib import Path
 
 from PIL import Image, ImageTk
+from tkcalendar import DateEntry
 
 from config import DATABASE_PATH
 
 
 VEHICLE_KINDS = ("Bike", "Bus")
+VEHICLE_ID_PREFIX = {"Bike": "BIK", "Bus": "BUS"}
 PLATE_SOURCES = (
     "Abu Dhabi",
     "Ajman",
     "Dubai",
     "Fujairah",
-    "Ras Al Khaimah",
+    "Ras Al Khaymah",
     "Sharjah",
-    "Umm Al Quwain",
+    "Um Al Quewain",
 )
 FUEL_TYPES = ("Petrol", "Diesel", "Electric", "Hybrid", "CNG", "Other")
 TRANSMISSIONS = ("Manual", "Automatic", "CVT", "Other")
@@ -27,9 +28,9 @@ FALLBACK_PLATE_CODES = {
     "Ajman": ("1", "2", "3"),
     "Dubai": tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + ("AA", "BB"),
     "Fujairah": ("1", "2", "3"),
-    "Ras Al Khaimah": ("1", "2", "3"),
+    "Ras Al Khaymah": ("1", "2", "3"),
     "Sharjah": ("1", "2", "3"),
-    "Umm Al Quwain": ("1", "2", "3"),
+    "Um Al Quewain": ("1", "2", "3"),
 }
 
 
@@ -110,7 +111,7 @@ def save_bike_bus(connection, values):
             ),
         )
         vehicle_id = cursor.lastrowid
-        registration_id = f"{values['vehicle_kind'].upper()}-{vehicle_id:06d}"
+        registration_id = f"{VEHICLE_ID_PREFIX[values['vehicle_kind']]}-{vehicle_id:06d}"
         cursor.execute(
             """
             INSERT INTO bike_bus_details (
@@ -153,68 +154,156 @@ class BikeBusRegistration:
         ensure_bike_bus_details_table(self.connection)
         self.fields = {}
         self.documents = {}
+        self.connection_closed = False
         self.frame = tk.Frame(parent, bg="#eaf1fa")
         self.frame.pack(fill="both", expand=True)
+        self.frame.bind("<Destroy>", self._on_destroy, add="+")
         self._build()
 
     def _build(self):
-        header = tk.Frame(self.frame, bg="#102f59", padx=20, pady=12)
+        header = tk.Frame(self.frame, bg="#102f59", padx=20, pady=9)
         header.pack(fill="x")
-        tk.Label(
+        self.breadcrumb_label = tk.Label(
             header,
-            text="BIKE & BUS REGISTRATION",
+            text=f"VEHICLE MANAGEMENT   ›   ADD NEW {self.vehicle_kind.upper()}",
+            bg="#102f59",
+            fg="#dbeafe",
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.breadcrumb_label.pack(anchor="w")
+        title_row = tk.Frame(header, bg="#102f59")
+        title_row.pack(fill="x", pady=(5, 0))
+        self.vehicle_icon_label = tk.Label(
+            title_row,
+            text="🏍" if self.vehicle_kind == "Bike" else "🚌",
+            bg="#102f59",
+            fg="white",
+            font=("Segoe UI", 24),
+        )
+        self.vehicle_icon_label.pack(side="left", padx=(0, 12))
+        title_copy = tk.Frame(title_row, bg="#102f59")
+        title_copy.pack(side="left", anchor="w")
+        self.title_label = tk.Label(
+            title_copy,
+            text=f"{self.vehicle_kind} Registration",
             bg="#102f59",
             fg="white",
             font=("Segoe UI", 18, "bold"),
-        ).pack(side="left")
-        tk.Label(
-            header,
-            text="Register and manage two-wheelers and buses",
+        )
+        self.title_label.pack(anchor="w")
+        self.subtitle_label = tk.Label(
+            title_copy,
+            text=f"Register and manage {self.vehicle_kind.lower()} vehicle details",
             bg="#102f59",
             fg="#dbeafe",
-            font=("Segoe UI", 10),
-        ).pack(side="left", padx=18, pady=(5, 0))
-        ttk.Button(header, text="Close", command=self.close).pack(side="right")
+            font=("Segoe UI", 9),
+        )
+        self.subtitle_label.pack(anchor="w")
+        ttk.Button(title_row, text="Close", command=self.close).pack(side="right", anchor="n")
 
-        toolbar = tk.Frame(self.frame, bg="#eaf1fa", padx=18, pady=8)
+        toolbar = tk.Frame(self.frame, bg="#f8fafc", padx=12, pady=5)
         toolbar.pack(fill="x")
-        tk.Label(toolbar, text="Vehicle type", bg="#eaf1fa", fg="#18365d",
-                 font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 10))
         self.kind_var = tk.StringVar(value=self.vehicle_kind)
+        self.kind_buttons = {}
         for kind in VEHICLE_KINDS:
-            ttk.Radiobutton(
+            button = tk.Button(
                 toolbar,
-                text=f"Add {kind}",
-                value=kind,
-                variable=self.kind_var,
-                command=self._kind_changed,
-            ).pack(side="left", padx=6)
+                text=f"  {kind}  ",
+                command=lambda selected=kind: self._kind_changed(selected),
+                bg="#0759b8" if kind == self.vehicle_kind else "#f8fafc",
+                fg="white" if kind == self.vehicle_kind else "#102f59",
+                activebackground="#0759b8",
+                activeforeground="white",
+                relief="flat",
+                font=("Segoe UI", 10, "bold"),
+                padx=8,
+                pady=7,
+            )
+            button.pack(side="left", padx=3)
+            self.kind_buttons[kind] = button
+        self.nav_buttons = {}
+        self.sections = {}
+        nav = tk.Frame(toolbar, bg="#f8fafc")
+        nav.pack(side="right")
+        for title in ("Registration Details", "Technical Specifications",
+                      "Operational Information", "Documents & Others"):
+            button = tk.Button(
+                nav,
+                text=title,
+                command=lambda target=title: self._focus_section(target),
+                bg="#e5edf8",
+                fg="#102f59",
+                activebackground="#d4e4f8",
+                relief="flat",
+                font=("Segoe UI", 9, "bold"),
+                padx=10,
+                pady=7,
+            )
+            button.pack(side="left", padx=2)
+            self.nav_buttons[title] = button
 
-        self.notebook = ttk.Notebook(self.frame)
-        self.notebook.pack(fill="both", expand=True, padx=16, pady=(0, 8))
-        self.registration_tab = self._tab("Registration Details")
-        self.technical_tab = self._tab("Technical Specifications")
-        self.operations_tab = self._tab("Operational Information")
-        self.documents_tab = self._tab("Documents & Others")
+        content = tk.Frame(self.frame, bg="#eaf1fa")
+        content.pack(fill="both", expand=True, padx=10)
+        self.canvas = tk.Canvas(content, bg="#eaf1fa", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(content, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.content_frame = tk.Frame(self.canvas, bg="#eaf1fa", padx=6, pady=4)
+        self.content_window = self.canvas.create_window((0, 0), window=self.content_frame, anchor="nw")
+        self.content_frame.bind("<Configure>", self._update_scroll_region)
+        self.canvas.bind("<Configure>", lambda event: self.canvas.itemconfigure(
+            self.content_window, width=event.width
+        ))
+        self.content_frame.grid_columnconfigure((0, 1), weight=1, uniform="vehicle_sections")
         self._build_registration()
         self._build_technical()
         self._build_operations()
         self._build_documents()
 
-        actions = tk.Frame(self.frame, bg="#eaf1fa", padx=18, pady=10)
+        actions = tk.Frame(self.frame, bg="#eaf1fa", padx=14, pady=8)
         actions.pack(fill="x")
-        ttk.Button(actions, text="Save", command=self.save).pack(side="left", padx=4)
-        ttk.Button(actions, text="New", command=self.new_form).pack(side="left", padx=4)
-        ttk.Button(actions, text="Reset", command=self.reset_form).pack(side="left", padx=4)
-        ttk.Button(actions, text="Open Insurance", command=self.open_insurance).pack(side="left", padx=4)
-        ttk.Button(actions, text="Documents", command=lambda: self.notebook.select(self.documents_tab)).pack(side="left", padx=4)
+        self._action_button(actions, "Save", self.save, "#16a34a", "white")
+        self._action_button(actions, "New", self.new_form, "#0866c6", "white")
+        self._action_button(actions, "Reset", self.reset_form, "#64748b", "white")
+        self._action_button(actions, "Open Insurance", self.open_insurance, "#f8fafc", "#102f59")
+        self._action_button(actions, "Documents", lambda: self._focus_section("Documents & Others"), "#f8fafc", "#102f59")
+        self._action_button(actions, "Close", self.close, "#fff5f5", "#b42318")
         self.status_label = tk.Label(actions, text="", bg="#eaf1fa", fg="#16733c")
         self.status_label.pack(side="left", padx=14)
+        self._focus_section("Registration Details")
 
-    def _tab(self, title):
-        tab = tk.Frame(self.notebook, bg="#f8fafc", padx=16, pady=14)
-        self.notebook.add(tab, text=title)
-        return tab
+    def _action_button(self, parent, text, command, background, foreground):
+        tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=background,
+            fg=foreground,
+            activebackground=background,
+            relief="solid",
+            bd=1,
+            font=("Segoe UI", 9, "bold"),
+            padx=14,
+            pady=7,
+        ).pack(side="left", padx=4)
+
+    def _update_scroll_region(self, event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _focus_section(self, title):
+        section = self.sections.get(title)
+        if section is None:
+            return
+        self.content_frame.update_idletasks()
+        height = max(self.content_frame.winfo_height(), 1)
+        self.canvas.yview_moveto(max(0, min(1, section.winfo_y() / height)))
+        for name, button in self.nav_buttons.items():
+            active = name == title
+            button.configure(
+                bg="#0759b8" if active else "#e5edf8",
+                fg="white" if active else "#102f59",
+            )
 
     def _section(self, parent, title, column, row):
         section = ttk.LabelFrame(parent, text=title, padding=(12, 10))
@@ -230,8 +319,9 @@ class BikeBusRegistration:
             if default:
                 widget.set(default)
         elif name == "registration_id":
-            variable = tk.StringVar(value=self._next_registration_id())
-            widget = ttk.Entry(parent, textvariable=variable, state="readonly")
+            widget = ttk.Entry(parent)
+            widget.insert(0, self._next_registration_id())
+            widget.configure(state="readonly")
         else:
             widget = ttk.Entry(parent)
             if default:
@@ -242,87 +332,170 @@ class BikeBusRegistration:
         return widget
 
     def _build_registration(self):
-        self.registration_tab.grid_columnconfigure((0, 1), weight=1)
-        info = self._section(self.registration_tab, "Registration Information", 0, 0)
-        photo = self._section(self.registration_tab, "Vehicle Preview & Documents", 1, 0)
-        self._field(info, "Vehicle ID", "registration_id", 0, 0)
-        self._field(info, "Plate Source *", "plate_source", 1, 0, PLATE_SOURCES, True)
-        self._field(info, "Plate Code *", "plate_code", 2, 0, ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J"), True)
-        self._field(info, "Plate Number *", "plate_number", 3, 0)
+        info = self._section(self.content_frame, "Registration Information", 0, 0)
+        photo = self._section(self.content_frame, "Vehicle Preview & Documents", 1, 0)
+        self.sections["Registration Details"] = info
+        info.grid_columnconfigure((1, 3), weight=1)
+        self._field(info, "Vehicle ID *", "registration_id", 0, 0)
         self._field(info, "Brand *", "brand", 0, 1, self._brands())
-        self._field(info, "Model *", "model", 1, 1)
+        self._field(info, "Plate Source *", "plate_source", 1, 0, PLATE_SOURCES, True)
+        self._field(info, "Model *", "model", 1, 1, ())
+        self._field(info, "Plate Code *", "plate_code", 2, 0, ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J"), True)
         current_year = date.today().year
         self._field(info, "Manufacturing Year *", "year", 2, 1,
                     tuple(str(year) for year in range(current_year, 1989, -1)), True, str(current_year))
+        self._field(info, "Plate Number *", "plate_number", 3, 0)
         self._field(info, "Colour *", "colour", 3, 1,
                     ("Black", "Blue", "Green", "Grey", "Red", "White", "Other"))
+        self.plate_indicator = tk.Label(
+            info,
+            text="○",
+            bg="#f8fafc",
+            fg="#94a3b8",
+            font=("Segoe UI", 11, "bold"),
+        )
+        self.plate_indicator.grid(row=3, column=4, padx=(0, 6))
+        self.fields["brand"].bind("<<ComboboxSelected>>", self._load_models)
         preview = tk.Label(photo, text="Vehicle photo preview", bg="#e6edf7", fg="#60758f",
                            height=8, font=("Segoe UI", 11))
-        preview.pack(fill="both", expand=True, padx=4, pady=5)
+        preview.grid(row=0, column=0, rowspan=5, sticky="nsew", padx=4, pady=5)
+        photo.grid_columnconfigure(0, weight=3)
+        photo.grid_columnconfigure(1, weight=2)
+        photo.grid_rowconfigure(0, weight=1)
         self.preview_label = preview
-        ttk.Button(photo, text="Upload Vehicle Photo", command=lambda: self._choose_document("vehicle_photo", "Vehicle Photo", True)).pack(pady=(4, 8))
-        self.fields["plate_source"].bind("<<ComboboxSelected>>", self._load_plate_codes)
-
-    def _build_technical(self):
-        self.technical_tab.grid_columnconfigure((0, 1), weight=1)
-        left = self._section(self.technical_tab, "Engine & Identification", 0, 0)
-        right = self._section(self.technical_tab, "Capacity & Equipment", 1, 0)
-        self._field(left, "Engine Number *", "engine_number", 0, 0)
-        self._field(left, "Chassis Number *", "chassis_number", 1, 0)
-        self._field(left, "Fuel Type *", "fuel_type", 2, 0, FUEL_TYPES, True, "Petrol")
-        self._field(left, "Engine Capacity (CC)", "engine_capacity_cc", 3, 0)
-        self._field(right, "Tank Capacity (L)", "tank_capacity", 0, 0)
-        self._field(right, "Current Odometer (km)", "current_odometer", 1, 0)
-        self._field(right, "Seating Capacity *", "seating_capacity", 2, 0, default="2" if self.vehicle_kind == "Bike" else "30")
-        self._field(right, "Transmission Type", "transmission_type", 3, 0, TRANSMISSIONS)
-        self._field(right, "Air Conditioning", "air_conditioning", 4, 0, ("Yes", "No"), True, "No")
-
-    def _build_operations(self):
-        self.operations_tab.grid_columnconfigure((0, 1), weight=1)
-        left = self._section(self.operations_tab, "Ownership & Status", 0, 0)
-        right = self._section(self.operations_tab, "Assignment & Notes", 1, 0)
-        self._field(left, "Ownership Type *", "ownership_type", 0, 0,
-                    ("Company Owned", "Rented In", "Leased"), True, "Company Owned")
-        self._field(left, "Vehicle Status *", "status", 1, 0,
-                    ("Active", "Under Repair", "Inactive"), True, "Active")
-        self._field(right, "Assigned Driver", "assigned_driver", 0, 0)
-        self._field(right, "Assigned Route", "assigned_route", 1, 0)
-        self._field(right, "Department", "department", 2, 0)
-        self._field(right, "Remarks", "remarks", 3, 0)
-
-    def _build_documents(self):
-        self.documents_tab.grid_columnconfigure((0, 1), weight=1)
-        dates = self._section(self.documents_tab, "Mulkiya (Registration Card)", 0, 0)
-        uploads = self._section(self.documents_tab, "Vehicle Documents", 1, 0)
-        self._field(dates, "Mulkiya Issue Date *", "mulkiya_issue_date", 0, 0, default=date.today().isoformat())
-        self._field(dates, "Mulkiya Expiry Date *", "mulkiya_expiry_date", 1, 0,
-                    default=(date.today() + timedelta(days=364)).isoformat())
-        self.fields["mulkiya_issue_date"].bind("<FocusOut>", self._update_expiry)
+        self.document_labels = {}
+        self.document_titles = {}
         for row, (key, title, images_only) in enumerate((
+            ("vehicle_photo", "Vehicle Photo", True),
             ("mulkiya_front", "Mulkiya (Front)", True),
             ("mulkiya_back", "Mulkiya (Back)", True),
             ("insurance_document", "Insurance", False),
             ("other_document", "Other Document", False),
         )):
-            line = tk.Frame(uploads, bg="#f8fafc")
-            line.grid(row=row, column=0, sticky="ew", padx=4, pady=6)
-            line.grid_columnconfigure(0, weight=1)
-            label = tk.Label(line, text=f"{title} — not attached", bg="#f8fafc", fg="#52657d", anchor="w")
-            label.grid(row=0, column=0, sticky="ew")
-            self.document_labels = getattr(self, "document_labels", {})
-            self.document_labels[key] = label
-            ttk.Button(line, text="Upload", command=lambda k=key, t=title, i=images_only: self._choose_document(k, t, i)).grid(row=0, column=1, padx=8)
+            self._document_row(photo, row, key, title, images_only)
+        self.fields["plate_source"].bind("<<ComboboxSelected>>", self._load_plate_codes)
+        self.fields["plate_source"].bind("<<ComboboxSelected>>", self._update_plate_indicator, add="+")
+        self.fields["plate_code"].bind("<<ComboboxSelected>>", self._update_plate_indicator)
+        self.fields["plate_number"].bind("<KeyRelease>", self._update_plate_indicator)
+
+    def _build_technical(self):
+        section = self._section(self.content_frame, "Technical Specifications", 0, 1)
+        self.sections["Technical Specifications"] = section
+        section.grid_columnconfigure((1, 3), weight=1)
+        self._field(section, "Engine Number *", "engine_number", 0, 0)
+        self._field(section, "Tank Capacity (L)", "tank_capacity", 0, 1)
+        self._field(section, "Chassis Number *", "chassis_number", 1, 0)
+        self._field(section, "Current Odometer (km) *", "current_odometer", 1, 1)
+        self._field(section, "Fuel Type *", "fuel_type", 2, 0, FUEL_TYPES, True,
+                    "Petrol" if self.vehicle_kind == "Bike" else "Diesel")
+        self._field(section, "Seating Capacity *", "seating_capacity", 2, 1,
+                    default="2" if self.vehicle_kind == "Bike" else "30")
+        self._field(section, "Engine Capacity (CC)", "engine_capacity_cc", 3, 0)
+        self._field(section, "Transmission Type", "transmission_type", 3, 1,
+                    TRANSMISSIONS, True, "Manual" if self.vehicle_kind == "Bike" else "Automatic")
+        self._field(section, "Air Conditioning", "air_conditioning", 4, 1,
+                    ("Yes", "No"), True, "No" if self.vehicle_kind == "Bike" else "Yes")
+
+    def _build_operations(self):
+        section = self._section(self.content_frame, "Operational Information", 1, 1)
+        self.sections["Operational Information"] = section
+        section.grid_columnconfigure((1, 3), weight=1)
+        self._field(section, "Ownership Type *", "ownership_type", 0, 0,
+                    ("Company Owned", "Rented In", "Leased"), True, "Company Owned")
+        self._field(section, "Assigned Route", "assigned_route", 0, 1, self._routes())
+        self._field(section, "Vehicle Status *", "status", 1, 0,
+                    ("Active", "Under Repair", "Inactive"), True, "Active")
+        self._field(section, "Department *", "department", 1, 1, self._departments())
+        self._field(section, "Assigned Driver", "assigned_driver", 2, 0, self._drivers())
+        self._field(section, "Remarks", "remarks", 3, 0)
+
+    def _build_documents(self):
+        dates = self._section(self.content_frame, "Mulkiya (Registration Card)", 0, 2)
+        dates.grid(columnspan=2, sticky="ew")
+        dates.grid_columnconfigure((1, 3), weight=1)
+        self.sections["Documents & Others"] = dates
+        self._date_field(dates, "Mulkiya Issue Date *", "mulkiya_issue_date", 0, 0, date.today())
+        self._date_field(dates, "Mulkiya Expiry Date *", "mulkiya_expiry_date", 0, 1,
+                         date.today() + timedelta(days=364))
+        self.expiry_notice = tk.Label(dates, text="", bg="#e1f4e7", fg="#18703a",
+                                      font=("Segoe UI", 9, "bold"), padx=12, pady=7)
+        self.expiry_notice.grid(row=0, column=4, padx=10, sticky="e")
+        self.fields["mulkiya_issue_date"].bind("<FocusOut>", self._update_expiry)
+        self.fields["mulkiya_expiry_date"].bind("<FocusOut>", self._update_expiry_notice)
+        self._update_expiry_notice()
+
+    def _date_field(self, parent, label, name, row, column, initial_date):
+        tk.Label(parent, text=label, bg="#f8fafc", fg="#18365d",
+                 font=("Segoe UI", 9)).grid(row=row, column=column * 2, sticky="w", padx=(4, 8), pady=7)
+        widget = DateEntry(parent, date_pattern="dd-mm-yyyy", width=17)
+        widget.set_date(initial_date)
+        widget.grid(row=row, column=column * 2 + 1, sticky="ew", padx=(0, 12), pady=5)
+        self.fields[name] = widget
+        return widget
+
+    def _document_row(self, parent, row, key, title, images_only):
+        line = tk.Frame(parent, bg="#f8fafc")
+        line.grid(row=row, column=1, sticky="ew", padx=(8, 2), pady=4)
+        line.grid_columnconfigure(0, weight=1)
+        label = tk.Label(line, text=f"{title}   ○", bg="#f8fafc", fg="#18365d",
+                         font=("Segoe UI", 9, "bold"), anchor="w")
+        label.grid(row=0, column=0, sticky="ew")
+        self.document_labels[key] = label
+        self.document_titles[key] = title
+        ttk.Button(
+            line,
+            text="Upload",
+            command=lambda k=key, t=title, i=images_only: self._choose_document(k, t, i),
+        ).grid(row=0, column=1, padx=(4, 0))
 
     def _brands(self):
         try:
-            rows = self.connection.execute("SELECT brand_name FROM vehicle_brands ORDER BY brand_name").fetchall()
-            return tuple(row[0] for row in rows)
+            rows = self.connection.execute(
+                "SELECT id, brand_name FROM vehicle_brands ORDER BY brand_name"
+            ).fetchall()
+            self.brand_ids = {name: brand_id for brand_id, name in rows}
+            return tuple(self.brand_ids)
+        except sqlite3.OperationalError:
+            self.brand_ids = {}
+            return ()
+
+    def _load_models(self, event=None):
+        brand_id = self.brand_ids.get(self.fields["brand"].get())
+        models = ()
+        if brand_id is not None:
+            try:
+                rows = self.connection.execute(
+                    "SELECT model_name FROM vehicle_models WHERE brand_id = ? ORDER BY model_name",
+                    (brand_id,),
+                ).fetchall()
+                models = tuple(row[0] for row in rows)
+            except sqlite3.OperationalError:
+                models = ()
+        self.fields["model"].configure(values=models)
+        self.fields["model"].set("")
+
+    def _drivers(self):
+        try:
+            rows = self.connection.execute(
+                """
+                SELECT employee_id, name FROM employees
+                WHERE lower(role) LIKE '%driver%' AND lower(status) = 'active'
+                ORDER BY name
+                """
+            ).fetchall()
+            return tuple(f"DRV-{employee_id:04d} - {name}" for employee_id, name in rows)
         except sqlite3.OperationalError:
             return ()
 
+    def _routes(self):
+        return ()
+
+    def _departments(self):
+        return ()
+
     def _next_registration_id(self):
         row = self.connection.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM vehicles").fetchone()
-        return f"{self.vehicle_kind.upper()}-{row[0]:06d}"
+        return f"{VEHICLE_ID_PREFIX[self.vehicle_kind]}-{row[0]:06d}"
 
     def _load_plate_codes(self, event=None):
         source = self.fields["plate_source"].get()
@@ -340,23 +513,64 @@ class BikeBusRegistration:
         combo.configure(values=codes)
         combo.set("")
 
-    def _kind_changed(self):
-        self.vehicle_kind = self.kind_var.get()
+    def _update_plate_indicator(self, event=None):
+        plate_number = self.fields["plate_number"].get().strip()
+        valid = plate_number.isdigit() and len(plate_number) <= 5
+        self.plate_indicator.configure(
+            text="✓" if valid else "○",
+            fg="#16803c" if valid else "#94a3b8",
+        )
+
+    def _kind_changed(self, vehicle_kind):
+        self.vehicle_kind = vehicle_kind
+        self.kind_var.set(vehicle_kind)
+        self.breadcrumb_label.configure(text=f"VEHICLE MANAGEMENT   ›   ADD NEW {vehicle_kind.upper()}")
+        self.title_label.configure(text=f"{vehicle_kind} Registration")
+        self.subtitle_label.configure(text=f"Register and manage {vehicle_kind.lower()} vehicle details")
+        self.vehicle_icon_label.configure(text="🏍" if vehicle_kind == "Bike" else "🚌")
+        for kind, button in self.kind_buttons.items():
+            active = kind == vehicle_kind
+            button.configure(bg="#0759b8" if active else "#f8fafc",
+                             fg="white" if active else "#102f59")
         self.fields["registration_id"].configure(state="normal")
         self.fields["registration_id"].delete(0, tk.END)
         self.fields["registration_id"].insert(0, self._next_registration_id())
         self.fields["registration_id"].configure(state="readonly")
         self.fields["seating_capacity"].delete(0, tk.END)
-        self.fields["seating_capacity"].insert(0, "2" if self.vehicle_kind == "Bike" else "30")
+        self.fields["seating_capacity"].insert(0, "2" if vehicle_kind == "Bike" else "30")
+        self.fields["fuel_type"].set("Petrol" if vehicle_kind == "Bike" else "Diesel")
+        self.fields["transmission_type"].set(
+            "Manual" if vehicle_kind == "Bike" else "Automatic"
+        )
+        self.fields["air_conditioning"].set("No" if vehicle_kind == "Bike" else "Yes")
 
     def _update_expiry(self, event=None):
         try:
-            issue_date = date.fromisoformat(self.fields["mulkiya_issue_date"].get().strip())
+            issue_date = self.fields["mulkiya_issue_date"].get_date()
         except ValueError:
             return
-        expiry = self.fields["mulkiya_expiry_date"]
-        expiry.delete(0, tk.END)
-        expiry.insert(0, (issue_date + timedelta(days=364)).isoformat())
+        self.fields["mulkiya_expiry_date"].set_date(issue_date + timedelta(days=364))
+        self._update_expiry_notice()
+
+    def _update_expiry_notice(self, event=None):
+        try:
+            expiry = self.fields["mulkiya_expiry_date"].get_date()
+        except ValueError:
+            self.expiry_notice.configure(text="Select an expiry date", bg="#fef3c7", fg="#92400e")
+            return
+        days_remaining = (expiry - date.today()).days
+        if days_remaining < 0:
+            self.expiry_notice.configure(
+                text=f"Expired {abs(days_remaining)} days ago",
+                bg="#fee2e2",
+                fg="#b42318",
+            )
+        else:
+            self.expiry_notice.configure(
+                text=f"Expiry in {days_remaining} days",
+                bg="#e1f4e7",
+                fg="#18703a",
+            )
 
     def _choose_document(self, key, title, images_only=False):
         filetypes = [("Images", "*.jpg *.jpeg *.png *.webp")] if images_only else [
@@ -366,19 +580,20 @@ class BikeBusRegistration:
         path = filedialog.askopenfilename(title=f"Select {title}", filetypes=filetypes)
         if not path:
             return
-        self.documents[key] = path
         if key == "vehicle_photo":
             try:
-                image = Image.open(path)
+                with Image.open(path) as source:
+                    image = source.copy()
             except OSError as error:
-                self.documents.pop(key, None)
                 messagebox.showerror("Could not open photo", str(error), parent=self.frame)
                 return
             image.thumbnail((360, 190))
             self.vehicle_photo = ImageTk.PhotoImage(image)
             self.preview_label.configure(image=self.vehicle_photo, text="")
+            self.documents[key] = path
         else:
-            self.document_labels[key].configure(text=f"{title} — {Path(path).name}", fg="#16733c")
+            self.documents[key] = path
+        self.document_labels[key].configure(text=f"{title}   ✓", fg="#16733c")
 
     def _value(self, name):
         return self.fields[name].get().strip()
@@ -392,24 +607,41 @@ class BikeBusRegistration:
             "assigned_route", "department", "remarks", "mulkiya_issue_date",
             "mulkiya_expiry_date",
         )}
+        values["mulkiya_issue_date"] = self.fields["mulkiya_issue_date"].get_date().isoformat()
+        values["mulkiya_expiry_date"] = self.fields["mulkiya_expiry_date"].get_date().isoformat()
         values["vehicle_kind"] = self.vehicle_kind
         values.update(self.documents)
         return values
 
     def save(self):
-        values = self._collect_values()
+        try:
+            values = self._collect_values()
+        except ValueError:
+            self._focus_section("Documents & Others")
+            messagebox.showwarning(
+                "Invalid registration dates",
+                "Choose valid mulkiya issue and expiry dates.",
+                parent=self.frame,
+            )
+            return
         required = ("plate_source", "plate_code", "plate_number", "brand", "model", "year",
-                    "colour", "engine_number", "chassis_number", "fuel_type", "seating_capacity",
-                    "ownership_type", "status", "mulkiya_issue_date", "mulkiya_expiry_date")
+                    "colour", "engine_number", "chassis_number", "fuel_type", "current_odometer",
+                    "seating_capacity", "ownership_type", "status", "department",
+                    "mulkiya_issue_date", "mulkiya_expiry_date")
         missing = [field.replace("_", " ").title() for field in required if not values[field]]
         if missing:
-            self.notebook.select(self.registration_tab if missing[0] in {
+            registration_fields = {
                 "Plate Source", "Plate Code", "Plate Number", "Brand", "Model", "Year", "Colour"
-            } else self.technical_tab)
+            }
+            self._focus_section(
+                "Registration Details" if missing[0] in registration_fields
+                else "Operational Information" if missing[0] in {"Department"}
+                else "Technical Specifications"
+            )
             messagebox.showwarning("Missing information", "Complete required fields: " + ", ".join(missing), parent=self.frame)
             return
         if not values["plate_number"].isdigit() or len(values["plate_number"]) > 5:
-            self.notebook.select(self.registration_tab)
+            self._focus_section("Registration Details")
             messagebox.showwarning("Invalid plate number", "Enter a plate number with up to five digits.", parent=self.frame)
             return
         try:
@@ -417,6 +649,15 @@ class BikeBusRegistration:
             expiry = date.fromisoformat(values["mulkiya_expiry_date"])
             if expiry <= issue:
                 raise ValueError
+        except ValueError:
+            self._focus_section("Documents & Others")
+            messagebox.showwarning(
+                "Invalid registration dates",
+                "Enter valid dates (YYYY-MM-DD) and make sure expiry is after issue date.",
+                parent=self.frame,
+            )
+            return
+        try:
             for name in ("engine_capacity_cc", "current_odometer", "seating_capacity"):
                 if values[name] and (not values[name].isdigit() or int(values[name]) < 0):
                     raise ValueError
@@ -425,8 +666,12 @@ class BikeBusRegistration:
                 if not isfinite(tank_capacity) or tank_capacity < 0:
                     raise ValueError
         except ValueError:
-            self.notebook.select(self.documents_tab)
-            messagebox.showwarning("Invalid details", "Check the numeric fields and enter valid ISO dates (YYYY-MM-DD); expiry must be after issue date.", parent=self.frame)
+            self._focus_section("Technical Specifications")
+            messagebox.showwarning(
+                "Invalid technical details",
+                "Enter non-negative whole numbers for engine capacity, odometer and seating; tank capacity must be a non-negative number.",
+                parent=self.frame,
+            )
             return
         try:
             registration_id = save_bike_bus(self.connection, values)
@@ -450,43 +695,50 @@ class BikeBusRegistration:
                 widget.delete(0, tk.END)
                 widget.insert(0, self._next_registration_id())
                 widget.configure(state="readonly")
+            elif name == "mulkiya_issue_date":
+                widget.set_date(date.today())
+            elif name == "mulkiya_expiry_date":
+                widget.set_date(date.today() + timedelta(days=364))
             elif isinstance(widget, ttk.Combobox):
                 widget.set("")
             else:
                 widget.delete(0, tk.END)
         self.fields["year"].set(str(date.today().year))
-        self.fields["fuel_type"].set("Petrol")
+        self.fields["fuel_type"].set("Petrol" if self.vehicle_kind == "Bike" else "Diesel")
         self.fields["ownership_type"].set("Company Owned")
         self.fields["status"].set("Active")
-        self.fields["air_conditioning"].set("No")
-        self.fields["mulkiya_issue_date"].insert(0, date.today().isoformat())
-        self.fields["mulkiya_expiry_date"].insert(0, (date.today() + timedelta(days=364)).isoformat())
+        self.fields["transmission_type"].set(
+            "Manual" if self.vehicle_kind == "Bike" else "Automatic"
+        )
+        self.fields["air_conditioning"].set("No" if self.vehicle_kind == "Bike" else "Yes")
         self.fields["seating_capacity"].insert(0, "2" if self.vehicle_kind == "Bike" else "30")
         self.documents.clear()
         for key, label in self.document_labels.items():
-            label.configure(text=key.replace("_", " ").title() + " — not attached", fg="#52657d")
+            label.configure(text=f"{self.document_titles[key]}   ○", fg="#18365d")
         self.preview_label.configure(image="", text="Vehicle photo preview")
+        self._update_plate_indicator()
+        self._update_expiry_notice()
         self.status_label.configure(text="")
 
     def new_form(self):
         self.reset_form()
-        self.notebook.select(self.registration_tab)
+        self._focus_section("Registration Details")
 
     def open_insurance(self):
-        self.connection.close()
-        try:
-            self.parent.grab_release()
-        except tk.TclError:
-            pass
-        self.parent.destroy()
+        self._close_connection()
         self.controller.open_vehicleins_page()
 
     def close(self):
-        self.connection.close()
-        try:
-            self.parent.grab_release()
-        except tk.TclError:
-            pass
-        self.parent.destroy()
+        self._close_connection()
+        self.frame.destroy()
         self.controller.set_form_mode(False)
-        self.controller.clear_content_area()
+        self.controller.show_vehicle()
+
+    def _on_destroy(self, event):
+        if event.widget is self.frame:
+            self._close_connection()
+
+    def _close_connection(self):
+        if not self.connection_closed:
+            self.connection.close()
+            self.connection_closed = True
